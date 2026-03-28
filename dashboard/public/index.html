@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SkillForge Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="header-left">
+      <span class="logo">🦞</span>
+      <div>
+        <h1>SkillForge Dashboard</h1>
+        <p class="subtitle">The Meta-Skill: Live Skill Generation</p>
+      </div>
+    </div>
+    <div class="stats-bar" id="stats-bar">
+      <span class="stat-pill" id="stat-skills">— skills</span>
+      <span class="stat-pill" id="stat-lines">— lines</span>
+      <span class="stat-pill" id="stat-scripts">— scripts</span>
+      <span class="status-dot" id="status-dot" title="Connecting..."></span>
+    </div>
+  </header>
+
+  <main>
+    <section class="gallery-panel" id="gallery-panel">
+      <div class="panel-label">SKILL GALLERY</div>
+      <div id="skill-list">
+        <div class="empty-state" id="empty-state">
+          <div class="pulse-ring"></div>
+          <p>Waiting for skills...</p>
+          <p class="empty-sub">Text your bot to create one.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="detail-panel" id="detail-panel">
+      <div class="panel-label">DETAIL PANEL</div>
+      <div id="detail-content" class="detail-placeholder">
+        <p>Select a skill to inspect it.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="live-feed" id="live-feed-bar">
+    <div class="feed-label">LIVE FEED</div>
+    <div class="feed-scroll" id="feed-scroll"></div>
+  </footer>
+
+  <div class="page-footer">🦞 Built for HackPSU 2026</div>
+
+  <script src="app.js"></script>
+</body>
+</html>
