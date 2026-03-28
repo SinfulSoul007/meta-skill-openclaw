@@ -1,0 +1,54 @@
+{
+  "$schema": "https://openclaw.ai/schemas/config.json",
+
+  "agents": {
+    "list": [
+      {
+        "id": "meta-skill-agent",
+        "name": "SkillForge",
+        "default": true,
+        "workspace": "~/.openclaw/workspace",
+        "model": "anthropic/claude-sonnet-4-6",
+        "identity": {
+          "name": "SkillForge",
+          "emoji": "🦞"
+        },
+        "tools": {
+          "exec": { "enabled": true },
+          "read": { "enabled": true },
+          "write": { "enabled": true },
+          "web_search": { "enabled": true }
+        }
+      }
+    ]
+  },
+
+  "bindings": [
+    {
+      "agentId": "meta-skill-agent",
+      "match": { "channel": "telegram", "accountId": "default" }
+    },
+    {
+      "agentId": "meta-skill-agent",
+      "match": { "channel": "discord", "accountId": "default" }
+    }
+  ],
+
+  "channels": {
+    "telegram": {
+      "accounts": {
+        "default": {
+          "token": { "source": "env", "provider": "default", "id": "TELEGRAM_BOT_TOKEN" }
+        }
+      }
+    },
+    "discord": {
+      "accounts": {
+        "default": {
+          "token": { "source": "env", "provider": "default", "id": "DISCORD_BOT_TOKEN" },
+          "guilds": {}
+        }
+      }
+    }
+  }
+}
