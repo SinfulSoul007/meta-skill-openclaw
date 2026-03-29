@@ -16,16 +16,16 @@
       </div>
     </div>
     <div class="stats-bar" id="stats-bar">
-      <span class="stat-pill" id="stat-skills">— skills</span>
-      <span class="stat-pill" id="stat-lines">— lines</span>
-      <span class="stat-pill" id="stat-scripts">— scripts</span>
+      <span class="stat-pill" id="stat-skills">-- skills</span>
+      <span class="stat-pill" id="stat-lines">-- lines</span>
+      <span class="stat-pill" id="stat-scripts">-- scripts</span>
       <span class="status-dot" id="status-dot" title="Connecting..."></span>
     </div>
   </header>
 
   <main>
     <section class="gallery-panel" id="gallery-panel">
-      <div class="panel-label">SKILL GALLERY</div>
+      <div class="panel-label">Skill Gallery</div>
       <div id="skill-list">
         <div class="empty-state" id="empty-state">
           <div class="pulse-ring"></div>
@@ -36,17 +36,23 @@
     </section>
 
     <section class="detail-panel" id="detail-panel">
-      <div class="panel-label">DETAIL PANEL</div>
+      <div class="panel-label">Skill Inspector</div>
       <div id="detail-content" class="detail-placeholder">
         <p>Select a skill to inspect it.</p>
       </div>
     </section>
   </main>
 
-  <footer class="live-feed" id="live-feed-bar">
-    <div class="feed-label">LIVE FEED</div>
-    <div class="feed-scroll" id="feed-scroll"></div>
-  </footer>
+  <div class="bottom-panels">
+    <div class="chat-feed" id="chat-feed-bar">
+      <div class="bottom-label">Live Chat</div>
+      <div class="feed-scroll" id="chat-scroll"></div>
+    </div>
+    <footer class="live-feed" id="live-feed-bar">
+      <div class="bottom-label">Event Log</div>
+      <div class="feed-scroll" id="feed-scroll"></div>
+    </footer>
+  </div>
 
   <div class="page-footer">🦞 Built for HackPSU 2026</div>
 
