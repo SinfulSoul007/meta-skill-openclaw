@@ -14,6 +14,8 @@ metadata:
     requires:
       bins:
         - node
+      env:
+        - ELEVENLABS_API_KEY
 ---
 
 # The Meta-Skill: Autonomous Skill Generator
@@ -144,6 +146,17 @@ grep -A5 "^---" ~/.openclaw/workspace/skills/{skill-name}/SKILL.md | head -10
 ```
 
 If validation fails, fix the issue and re-write the file.
+
+### Step 7.5: Voice Confirmation (if ElevenLabs is configured)
+
+If the ELEVENLABS_API_KEY environment variable is set, generate a spoken confirmation:
+
+```bash
+bash {baseDir}/scripts/voice_confirm.sh "{skill-name}" "{example trigger phrase}"
+```
+
+This sends an audio message to the user confirming the skill was deployed.
+If ELEVENLABS_API_KEY is not set, skip this step silently.
 
 ### Step 7: Test
 
