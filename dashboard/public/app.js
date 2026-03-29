@@ -7,6 +7,7 @@ let eventSource = null;
 const skillList = document.getElementById('skill-list');
 const detailContent = document.getElementById('detail-content');
 const feedScroll = document.getElementById('feed-scroll');
+const chatScroll = document.getElementById('chat-scroll');
 const statusDot = document.getElementById('status-dot');
 const statSkills = document.getElementById('stat-skills');
 const statLines = document.getElementById('stat-lines');
@@ -69,6 +70,50 @@ function addFeedItem(type, message) {
   feedScroll.scrollTop = feedScroll.scrollHeight;
   // Keep feed trimmed
   while (feedScroll.children.length > 60) feedScroll.removeChild(feedScroll.firstChild);
+}
+
+// ── CHAT FEED ─────────────────────────────────────────────
+
+const seenMessages = new Set();
+
+function cleanMessageText(raw) {
+  let t = raw;
+  // Strip OpenClaw metadata prefix
+  t = t.replace(/^Conversation info \(untrusted metadata\):[\s\S]*?```\s*/m, '');
+  // Strip markdown formatting but keep the content
+  t = t.replace(/```[\w]*\n?([\s\S]*?)```/g, '$1');
+  t = t.replace(/\*\*(.+?)\*\*/g, '$1');
+  t = t.replace(/\*(.+?)\*/g, '$1');
+  t = t.replace(/^#+\s*/gm, '');
+  t = t.trim();
+  if (!t) return null;
+  return t;
+}
+
+function addChatMessage(msg) {
+  const key = msg.timestamp + msg.role;
+  if (seenMessages.has(key)) return;
+  seenMessages.add(key);
+
+  const cleaned = cleanMessageText(msg.text);
+  if (!cleaned) return;
+
+  const item = document.createElement('div');
+  item.className = `chat-item ${msg.role}`;
+  const roleLabel = msg.role === 'user' ? 'USER' : 'BOT';
+  const text = cleaned.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  item.innerHTML = `<span class="chat-role">${roleLabel}</span><span class="chat-text">${text}</span>`;
+  chatScroll.appendChild(item);
+  chatScroll.scrollTop = chatScroll.scrollHeight;
+  while (chatScroll.children.length > 80) chatScroll.removeChild(chatScroll.firstChild);
+}
+
+async function loadRecentMessages() {
+  try {
+    const res = await fetch('/api/messages');
+    const msgs = await res.json();
+    msgs.forEach(addChatMessage);
+  } catch {}
 }
 
 // ── STATS ─────────────────────────────────────────────────
@@ -206,6 +251,11 @@ function connectSSE() {
 
     if (event.type === 'connected') return;
 
+    if (event.type === 'message') {
+      addChatMessage(event.message);
+      return;
+    }
+
     if (event.type === 'skill_created') {
       addFeedItem('created', `✅ Skill "${event.name}" created`);
       await loadSkills();
@@ -240,10 +290,46 @@ function connectSSE() {
   };
 }
 
+// ── POLLING FALLBACK ──────────────────────────────────────
+// SSE can be buffered by proxies (Cloudflare Tunnel etc.)
+// Poll every 2s to guarantee real-time updates
+
+async function pollMessages() {
+  try {
+    const res = await fetch('/api/messages');
+    const msgs = await res.json();
+    msgs.forEach(addChatMessage);
+  } catch {}
+}
+
+async function pollSkills() {
+  try {
+    const res = await fetch('/api/skills');
+    const newSkills = await res.json();
+    // Detect new skills
+    const oldNames = new Set(skills.map(s => s.name));
+    skills = newSkills;
+    renderGallery();
+    refreshStats();
+    for (const sk of newSkills) {
+      if (!oldNames.has(sk.name)) {
+        addFeedItem('created', `Skill "${sk.name}" created`);
+        glowCard(sk.name);
+        selectSkill(sk);
+      }
+    }
+  } catch {}
+}
+
 // ── INIT ──────────────────────────────────────────────────
 
 loadSkills();
+loadRecentMessages();
 connectSSE();
+
+// Poll every 2s for messages, every 3s for skills
+setInterval(pollMessages, 2000);
+setInterval(pollSkills, 3000);
 
 // Refresh time-ago labels every 30s
 setInterval(() => renderGallery(), 30000);
