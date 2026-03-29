@@ -1,8 +1,18 @@
-# The Meta-Skill
+# The Meta-Skill 🦞
 
 An [OpenClaw](https://openclaw.ai) workspace skill that autonomously generates, validates, tests, and deploys new OpenClaw skills from natural language descriptions. It is itself a skill that creates other skills.
 
 Built for **HackPSU 2026** — College of IST / OpenClaw Track.
+
+## Live Dashboard
+
+**[Open Dashboard](https://absent-northwest-hitting-judicial.trycloudflare.com)** — real-time skill gallery, chat feed, and event log.
+
+> The dashboard URL changes on restart. If the link above is stale, start it locally:
+> ```bash
+> node dashboard/server.js    # → http://localhost:3000
+> cloudflared tunnel --url http://localhost:3000  # → public URL
+> ```
 
 ## What It Does
 
@@ -43,7 +53,8 @@ The built-in `skill-creator` is a **cookbook**. The Meta-Skill is a **chef**.
 ├── scripts/
 │   ├── validate_skill.sh            <- Validates generated SKILL.md syntax
 │   ├── test_skill.sh                <- Tests a generated skill structure
-│   └── list_existing_skills.sh      <- Lists workspace skills (avoids collisions)
+│   ├── list_existing_skills.sh      <- Lists workspace skills (avoids collisions)
+│   └── voice_confirm.sh             <- ElevenLabs TTS voice confirmation (optional)
 ├── references/
 │   ├── skill_format_guide.md        <- Complete SKILL.md format spec
 │   ├── available_tools.md           <- What tools the agent can use
@@ -52,6 +63,26 @@ The built-in `skill-creator` is a **cookbook**. The Meta-Skill is a **chef**.
 └── assets/
     └── skill_template.md            <- Base template for generated skills
 ```
+
+## Live Dashboard
+
+A zero-dependency web dashboard (`dashboard/`) shows skill generation in real-time:
+
+- **Skill Gallery** — cards for each generated skill, with purple glow animation on new ones
+- **Skill Inspector** — full SKILL.md preview with syntax highlighting
+- **Live Chat** — streams user/bot messages from Telegram in real-time
+- **Event Log** — skill created/updated/deleted events
+
+```
+dashboard/
+├── server.js          <- Node.js server (REST API + SSE + polling)
+└── public/
+    ├── index.html
+    ├── style.css
+    └── app.js
+```
+
+No `npm install` needed — vanilla HTML/CSS/JS + Node.js `http` and `fs` only.
 
 ## Setup
 
@@ -64,7 +95,7 @@ The built-in `skill-creator` is a **cookbook**. The Meta-Skill is a **chef**.
 ### Install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/meta-skill-openclaw.git
+git clone https://github.com/SinfulSoul007/meta-skill-openclaw.git
 cd meta-skill-openclaw
 
 # Configure your API key and channel tokens
@@ -81,15 +112,38 @@ set -a && source .env && set +a
 openclaw gateway
 ```
 
+### Run the Dashboard
+
+```bash
+node dashboard/server.js
+# Open http://localhost:3000
+
+# Optional: expose publicly via Cloudflare Tunnel
+cloudflared tunnel --url http://localhost:3000
+```
+
 ### Test It
 
 ```bash
 # Via CLI
-openclaw agent --message "Create a skill that tells me a random joke"
+openclaw tui
+# Say: "Create a skill that tells me a random joke"
 
-# Or text your bot on Telegram/Discord:
+# Or text your bot on Telegram:
 # "Create a skill that checks if my favorite websites are down"
 ```
+
+## Workspace Identity
+
+The agent runs as **SkillForge** with a lobster emoji (🦞). Its personality and behavior are defined in:
+
+- `workspace/IDENTITY.md` — name, emoji, vibe
+- `workspace/SOUL.md` — behavior rules, self-sufficiency, output rules
+
+Key behaviors:
+- Auto-installs missing tools (pdflatex, pandoc, etc.) via Homebrew
+- Sends generated files (PDFs, images) directly through Telegram
+- Compiles LaTeX to PDF locally instead of telling users to use Overleaf
 
 ## Usage
 
@@ -114,24 +168,10 @@ Say any of these to trigger the Meta-Skill:
 | Request | What Gets Generated |
 |---------|-------------------|
 | "A skill that checks stock prices" | API calls to Yahoo Finance, price formatting, alert thresholds |
-| "Organize my Downloads folder" | File scanning, extension-based sorting, move commands |
+| "LaTeX cheatsheet for my class" | Generates .tex, compiles to PDF, sends via Telegram |
 | "Monitor a website for changes" | URL tracking, hash comparison, change detection |
-| "Format my meeting notes" | Text parsing, structured output, file saving |
-| "Bootstrap a new Python project" | Directory scaffolding, config files, git init |
+| "Organize my Downloads folder" | File scanning, extension-based sorting, move commands |
 | "Daily Hacker News digest" | HN API integration, story formatting, cron suggestion |
-
-## Demo
-
-For live demos, use the watcher script to show skills appearing in real-time:
-
-```bash
-# Terminal 1: Watch the skills directory
-./scripts/demo.sh
-
-# Terminal 2 (or phone): Talk to the agent
-# "Create a skill that checks if any of my favorite websites are down"
-# Watch it appear in Terminal 1!
-```
 
 ## Project Structure
 
@@ -141,7 +181,13 @@ meta-skill-openclaw/
 ├── .env.example           # Required API keys and tokens
 ├── scripts/
 │   ├── setup.sh           # Deploys meta-skill to workspace
-│   └── demo.sh            # Live demo watcher
+│   └── demo.sh            # Live demo watcher (terminal)
+├── dashboard/             # Live web dashboard (no deps)
+│   ├── server.js
+│   └── public/
+├── workspace/             # Agent identity files
+│   ├── IDENTITY.md
+│   └── SOUL.md
 └── meta-skill/            # The skill itself (deployed to workspace)
     ├── SKILL.md
     ├── scripts/
@@ -152,9 +198,11 @@ meta-skill-openclaw/
 ## Tech Stack
 
 - **[OpenClaw](https://openclaw.ai)** — Agent orchestration, skill system, channel integration
-- **Claude Sonnet** (via Anthropic API) — LLM backend
-- **Bash/Python** — Helper scripts for validation and testing
-- **Telegram/Discord** — User-facing channels
+- **Claude Haiku 4.5** (via Anthropic API) — LLM backend
+- **Vanilla Node.js** — Dashboard server (zero dependencies)
+- **Cloudflare Tunnel** — Public dashboard access
+- **Bash** — Helper scripts for validation and testing
+- **Telegram** — User-facing channel
 
 ---
 
