@@ -4,34 +4,44 @@ const fs = require('fs');
 const path = require('path');
 
 const SKILLS_DIR = path.join(process.env.HOME, '.openclaw', 'workspace', 'skills');
+const AGENTS_DIR = path.join(process.env.HOME, '.openclaw', 'agents');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
-// Parse --port flag
 const portArg = process.argv.indexOf('--port');
 const PORT = portArg !== -1 ? parseInt(process.argv[portArg + 1], 10) : 3000;
 
-// SSE clients
 const sseClients = new Set();
 
-// Ensure skills dir exists
-if (!fs.existsSync(SKILLS_DIR)) {
-  fs.mkdirSync(SKILLS_DIR, { recursive: true });
+if (!fs.existsSync(SKILLS_DIR)) fs.mkdirSync(SKILLS_DIR, { recursive: true });
+
+// ── UTILITIES ─────────────────────────────────────────────
+
+const debounceMap = new Map();
+function debounce(key, fn, delay) {
+  if (debounceMap.has(key)) clearTimeout(debounceMap.get(key));
+  debounceMap.set(key, setTimeout(() => { debounceMap.delete(key); fn(); }, delay));
 }
 
-// Parse YAML frontmatter from SKILL.md
+function broadcast(event) {
+  const data = `data: ${JSON.stringify(event)}\n\n`;
+  for (const client of sseClients) {
+    try { client.write(data); } catch { sseClients.delete(client); }
+  }
+}
+
+// ── SKILLS ────────────────────────────────────────────────
+
 function parseFrontmatter(content) {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) return {};
-  const block = match[1];
   const result = {};
-  for (const line of block.split('\n')) {
+  for (const line of match[1].split('\n')) {
     const m = line.match(/^(\w+):\s*(.+)/);
     if (m) result[m[1].trim()] = m[2].trim().replace(/^["']|["']$/g, '');
   }
   return result;
 }
 
-// Get all files in a skill dir recursively
 function getSkillFiles(skillPath) {
   const files = [];
   function walk(dir, base) {
@@ -48,7 +58,6 @@ function getSkillFiles(skillPath) {
   return files;
 }
 
-// Build skill info object
 function getSkillInfo(name) {
   const skillPath = path.join(SKILLS_DIR, name);
   const skillMdPath = path.join(skillPath, 'SKILL.md');
@@ -57,40 +66,29 @@ function getSkillInfo(name) {
     if (!stat.isDirectory()) return null;
     if (!fs.existsSync(skillMdPath)) return null;
     const content = fs.readFileSync(skillMdPath, 'utf8');
-    const frontmatter = parseFrontmatter(content);
-    const lines = content.split('\n').length;
+    const fm = parseFrontmatter(content);
     const files = getSkillFiles(skillPath);
-    const hasScripts = files.some(f => f.startsWith('scripts/') || f.endsWith('.sh'));
-    const skillStat = fs.statSync(skillMdPath);
     return {
-      name: frontmatter.name || name,
-      description: frontmatter.description || '',
-      version: frontmatter.version || '',
+      name: fm.name || name,
+      description: fm.description || '',
+      version: fm.version || '',
       path: skillPath,
       files,
-      lineCount: lines,
-      hasScripts,
+      lineCount: content.split('\n').length,
+      hasScripts: files.some(f => f.startsWith('scripts/') || f.endsWith('.sh')),
       createdAt: stat.birthtime.toISOString(),
-      modifiedAt: skillStat.mtime.toISOString(),
+      modifiedAt: fs.statSync(skillMdPath).mtime.toISOString(),
     };
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
-// Get all skills
 function getAllSkills() {
   try {
-    return fs.readdirSync(SKILLS_DIR)
-      .map(name => getSkillInfo(name))
-      .filter(Boolean)
+    return fs.readdirSync(SKILLS_DIR).map(n => getSkillInfo(n)).filter(Boolean)
       .sort((a, b) => new Date(b.modifiedAt) - new Date(a.modifiedAt));
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 
-// Get stats
 function getStats() {
   const skills = getAllSkills();
   return {
@@ -102,28 +100,123 @@ function getStats() {
   };
 }
 
-// Broadcast SSE event
-function broadcast(event) {
-  const data = `data: ${JSON.stringify(event)}\n\n`;
-  for (const client of sseClients) {
-    try { client.write(data); } catch { sseClients.delete(client); }
+// ── MESSAGES ──────────────────────────────────────────────
+
+function extractText(msg) {
+  let text = '';
+  if (Array.isArray(msg.content)) {
+    for (const b of msg.content) {
+      if (b.type === 'text') text += b.text;
+    }
+  } else if (typeof msg.content === 'string') {
+    text = msg.content;
   }
+  return text;
 }
 
-// Watch skills directory with debounce
-const debounceMap = new Map();
-function debounce(key, fn, delay) {
-  if (debounceMap.has(key)) clearTimeout(debounceMap.get(key));
-  debounceMap.set(key, setTimeout(() => { debounceMap.delete(key); fn(); }, delay));
+function isNoise(text) {
+  return text.includes('HEARTBEAT') || text.includes('Read HEARTBEAT');
 }
 
-let watcher = null;
-function startWatcher() {
+function parseSessionMessages(filePath) {
+  const messages = [];
   try {
-    watcher = fs.watch(SKILLS_DIR, { recursive: true }, (eventType, filename) => {
+    const lines = fs.readFileSync(filePath, 'utf8').trim().split('\n');
+    for (const line of lines) {
+      if (!line) continue;
+      try {
+        const entry = JSON.parse(line);
+        if (entry.type !== 'message') continue;
+        const msg = entry.message;
+        if (!msg || !msg.role) continue;
+        if (msg.role === 'toolResult' || msg.role === 'system') continue;
+        const text = extractText(msg);
+        if (!text || isNoise(text)) continue;
+        messages.push({ role: msg.role, text, timestamp: entry.timestamp });
+      } catch {}
+    }
+  } catch {}
+  return messages;
+}
+
+function getAllMessages() {
+  let all = [];
+  try {
+    for (const agent of fs.readdirSync(AGENTS_DIR)) {
+      const sessDir = path.join(AGENTS_DIR, agent, 'sessions');
+      if (!fs.existsSync(sessDir)) continue;
+      for (const f of fs.readdirSync(sessDir)) {
+        if (!f.endsWith('.jsonl')) continue;
+        all = all.concat(parseSessionMessages(path.join(sessDir, f)));
+      }
+    }
+  } catch {}
+  all.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  return all;
+}
+
+// ── WATCHERS ──────────────────────────────────────────────
+
+// Track file sizes to detect new content
+const fileSizes = new Map();
+
+function watchMessages() {
+  try {
+    for (const agent of fs.readdirSync(AGENTS_DIR)) {
+      const sessDir = path.join(AGENTS_DIR, agent, 'sessions');
+      if (!fs.existsSync(sessDir)) continue;
+
+      // Initial sizes
+      for (const f of fs.readdirSync(sessDir)) {
+        if (!f.endsWith('.jsonl')) continue;
+        const fp = path.join(sessDir, f);
+        try { fileSizes.set(fp, fs.statSync(fp).size); } catch {}
+      }
+
+      fs.watch(sessDir, { recursive: true }, (_evt, filename) => {
+        if (!filename || !filename.endsWith('.jsonl')) return;
+        const fp = path.join(sessDir, filename);
+        debounce('msg-' + fp, () => {
+          try {
+            const stat = fs.statSync(fp);
+            const prevSize = fileSizes.get(fp) || 0;
+            if (stat.size <= prevSize) return;
+            fileSizes.set(fp, stat.size);
+
+            // Read only the new bytes
+            const buf = Buffer.alloc(stat.size - prevSize);
+            const fd = fs.openSync(fp, 'r');
+            fs.readSync(fd, buf, 0, buf.length, prevSize);
+            fs.closeSync(fd);
+
+            const newLines = buf.toString('utf8').trim().split('\n');
+            for (const line of newLines) {
+              try {
+                const entry = JSON.parse(line);
+                if (entry.type !== 'message') continue;
+                const msg = entry.message;
+                if (!msg || msg.role === 'toolResult' || msg.role === 'system') continue;
+                const text = extractText(msg);
+                if (!text || isNoise(text)) continue;
+                broadcast({
+                  type: 'message',
+                  message: { role: msg.role, text, timestamp: entry.timestamp },
+                  timestamp: new Date().toISOString(),
+                });
+              } catch {}
+            }
+          } catch {}
+        }, 200);
+      });
+    }
+  } catch {}
+}
+
+function watchSkills() {
+  try {
+    fs.watch(SKILLS_DIR, { recursive: true }, (_evt, filename) => {
       if (!filename) return;
-      const parts = filename.split(path.sep);
-      const skillName = parts[0];
+      const skillName = filename.split(path.sep)[0];
       if (!skillName) return;
       debounce(skillName, () => {
         const skillPath = path.join(SKILLS_DIR, skillName);
@@ -132,7 +225,6 @@ function startWatcher() {
         } else {
           const info = getSkillInfo(skillName);
           if (!info) return;
-          // Heuristic: if modified within last 2s, treat as created or updated
           const age = Date.now() - new Date(info.createdAt).getTime();
           const type = age < 3000 ? 'skill_created' : 'skill_updated';
           broadcast({ type, name: skillName, skill: info, timestamp: new Date().toISOString() });
@@ -140,18 +232,32 @@ function startWatcher() {
       }, 500);
     });
   } catch (e) {
-    console.error('Watcher error:', e.message);
+    console.error('Skill watcher error:', e.message);
   }
 }
-startWatcher();
 
-// MIME types
+// Also poll for new messages every 3s as a fallback (fs.watch can miss events)
+let lastMsgCount = 0;
+function pollMessages() {
+  const msgs = getAllMessages();
+  if (msgs.length > lastMsgCount) {
+    const newOnes = msgs.slice(lastMsgCount);
+    for (const m of newOnes) {
+      broadcast({ type: 'message', message: m, timestamp: new Date().toISOString() });
+    }
+  }
+  lastMsgCount = msgs.length;
+}
+setInterval(pollMessages, 3000);
+
+watchSkills();
+watchMessages();
+
+// ── HTTP SERVER ───────────────────────────────────────────
+
 const MIME = {
-  '.html': 'text/html',
-  '.css': 'text/css',
-  '.js': 'application/javascript',
-  '.json': 'application/json',
-  '.ico': 'image/x-icon',
+  '.html': 'text/html', '.css': 'text/css',
+  '.js': 'application/javascript', '.json': 'application/json',
 };
 
 function setCORS(res) {
@@ -166,12 +272,12 @@ const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   const pathname = url.pathname;
 
-  // SSE
   if (pathname === '/api/events') {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
+      'Cache-Control': 'no-cache, no-transform',
       'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
     });
     res.write(`data: ${JSON.stringify({ type: 'connected', timestamp: new Date().toISOString() })}\n\n`);
     sseClients.add(res);
@@ -179,31 +285,32 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // API: list skills
   if (pathname === '/api/skills') {
-    const skills = getAllSkills();
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(skills));
+    res.end(JSON.stringify(getAllSkills()));
     return;
   }
 
-  // API: single skill content
   const skillMatch = pathname.match(/^\/api\/skills\/(.+)$/);
   if (skillMatch) {
     const name = decodeURIComponent(skillMatch[1]);
-    const skillMdPath = path.join(SKILLS_DIR, name, 'SKILL.md');
+    const fp = path.join(SKILLS_DIR, name, 'SKILL.md');
     try {
-      const content = fs.readFileSync(skillMdPath, 'utf8');
       res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end(content);
+      res.end(fs.readFileSync(fp, 'utf8'));
     } catch {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Not found' }));
+      res.writeHead(404); res.end('Not found');
     }
     return;
   }
 
-  // API: stats
+  if (pathname === '/api/messages') {
+    const msgs = getAllMessages();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(msgs.slice(-100)));
+    return;
+  }
+
   if (pathname === '/api/stats') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(getStats()));
@@ -212,18 +319,10 @@ const server = http.createServer((req, res) => {
 
   // Static files
   let filePath = path.join(PUBLIC_DIR, pathname === '/' ? 'index.html' : pathname);
-  // Prevent path traversal
-  if (!filePath.startsWith(PUBLIC_DIR)) {
-    res.writeHead(403); res.end(); return;
-  }
-  const ext = path.extname(filePath);
+  if (!filePath.startsWith(PUBLIC_DIR)) { res.writeHead(403); res.end(); return; }
   fs.readFile(filePath, (err, data) => {
-    if (err) {
-      res.writeHead(404, { 'Content-Type': 'text/plain' });
-      res.end('Not found');
-      return;
-    }
-    res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+    if (err) { res.writeHead(404); res.end('Not found'); return; }
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(filePath)] || 'application/octet-stream' });
     res.end(data);
   });
 });
@@ -231,4 +330,6 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, () => {
   console.log(`🦞 SkillForge Dashboard running at http://localhost:${PORT}`);
   console.log(`   Watching: ${SKILLS_DIR}`);
+  // Init poll baseline
+  lastMsgCount = getAllMessages().length;
 });
